@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#define HEADER_SIZE 54
 
 struct Pixel{ // 3 bytes
 	unsigned char B, G, R;
@@ -7,72 +9,110 @@ struct Pixel{ // 3 bytes
 
 struct ImageMatrix{
 	unsigned int altura, largura;
-	Pixel* img;
+	Pixel* pixels;
 };
- 
+
+unsigned char header[HEADER_SIZE];
+
 ImageMatrix* parseBitmap(FILE* imgp){
-	printf("%lu\n",sizeof(Pixel));
-	// tipo de arquivo (BM)
-	unsigned char tipo_arquivo[2];
-	fread(tipo_arquivo, 1, 2, imgp);
-	
-	printf("Tipo do arquivo: %c%c\n", tipo_arquivo[0], tipo_arquivo[1]);
-	
-	// tamanho da imagem
-	unsigned int tamanho_imagem;
-	fread(&tamanho_imagem, 4, 1, imgp);
+	fread(header, 54, 1, imgp);
 
-	printf("Tamanho da imagem: %d\n", tamanho_imagem);
+	// Parsing do header
+	unsigned char tipo_arquivo[3] = {header[0], header[1], 0};
+	unsigned int offset  = *(unsigned int*)&header[10];
+	unsigned int largura = *(unsigned int*)&header[18];
+	unsigned int altura  = *(unsigned int*)&header[22];
+	unsigned short bpp   = *(unsigned short*)&header[28];
+	int tamLinha = largura * 3;
 
-	// ignorando proximos 4 bytes
-	unsigned int lixo;
-	fread(&lixo, 4, 1, imgp);
-
-	// offset dos pixels
-	unsigned int offset;
-	fread(&offset, 4, 1, imgp);
-
+	printf("Tipo do arquivo: %s\n", tipo_arquivo);
 	printf("offset dos pixels: %d\n", offset);
-
-	// ignorando proximos 4 bytes
-	fread(&lixo, 4, 1, imgp);
-
-	unsigned int largura, altura;
-	fread(&largura, 4, 1, imgp);
-	fread(&altura, 4, 1, imgp);
-
 	printf("dimensoes da imagem: %dx%d\n", largura, altura);
-
-	// ignorando proximos 2 bytes
-	fread(&lixo, 2, 1, imgp);
-
-	unsigned short bpp;
-	fread(&bpp, 2, 1, imgp);
-
 	printf("bpp: %d\n", bpp);
+	printf("tamLinha: %d\n", tamLinha);
 
-	unsigned short Bpp = bpp/8;
 	// indo pro inicio dos pixels
 	fseek(imgp, offset, SEEK_SET);
-
-	// Parsing dos pixels
-	int tamLinha = largura * 3;
-	printf("tamLinha: %d\n", tamLinha);
-	
-	ImageMatrix* pixels = new ImageMatrix();
-	pixels->img = new Pixel[largura*altura];
-	pixels->largura = largura;
-	pixels->altura = altura;
-
 	// criando a matriz
+	ImageMatrix* img = new ImageMatrix();
+	img->pixels = new Pixel[largura*altura];
+	img->largura = largura;
+	img->altura = altura;
+
+	// parsing dos pixels
 	int padding = (4 - (tamLinha % 4)) % 4;
 
 	for (int i = 0; i < altura; i++){
-		fread(&pixels->img[i*largura], sizeof(Pixel), largura, imgp);
+		fread(&img->pixels[i*largura], sizeof(Pixel), largura, imgp);
 		// pulando padding
 		fseek(imgp, padding, SEEK_CUR);
 	}
-	return pixels;
+	return img;
+}
+
+void freeBitmap(ImageMatrix* bmp){
+	free(bmp->pixels);
+	free(bmp);
+	bmp = NULL;
+}
+
+void saveBitmap(const char* filename, ImageMatrix* img){
+	FILE* imgp;
+	if ((imgp = fopen(filename, "wb")) == NULL){
+		perror("Erro ao abrir arquivo");
+		return;
+	}
+	
+	// Assume que header nao esta mudado
+	fwrite(header, HEADER_SIZE, 1, imgp);
+
+	unsigned int altura = img->altura;
+	unsigned int largura = img->largura;
+
+	int padding = (4 - (largura * 3) % 4) % 4;
+	unsigned char pad[3] = {0,0,0};
+
+	for (int i = 0; i < altura; i++){
+		fwrite(&img->pixels[i*largura], sizeof(Pixel), largura, imgp);
+		fwrite(pad, 1, padding, imgp);
+	}
+	fclose(imgp);
+}
+
+int preventOverflow(int value){
+	return value > 255? 255 : value;
+}
+
+int preventUnderflow(int value){
+	return value < 0? 0 : value;
+}
+
+void add(ImageMatrix* img, int n){
+	unsigned int altura = img->altura;
+	unsigned int largura = img->largura;
+
+	for (int i = 0; i < altura; i++){
+		for (int j = 0; j < largura; j++){
+			Pixel* p = &img->pixels[i*largura + j];
+			p->B = preventOverflow(p->B + n);
+			p->G = preventOverflow(p->G + n);
+			p->R = preventOverflow(p->R + n);
+		}
+	}
+}
+
+void subtract(ImageMatrix* img, int n){
+	unsigned int altura = img->altura;
+	unsigned int largura = img->largura;
+
+	for (int i = 0; i < altura; i++){
+		for (int j = 0; j < largura; j++){
+			Pixel* p = &img->pixels[i*largura + j];
+			p->B = preventUnderflow(p->B - n);
+			p->G = preventUnderflow(p->G - n);
+			p->R = preventUnderflow(p->R - n);
+		}
+	}
 }
 
 int main(int argc, char* argv[]){
@@ -82,12 +122,16 @@ int main(int argc, char* argv[]){
 		return 1;
 	}
 	char* nome_foto = argv[1];
-	FILE* fptr;
-	if ((fptr = fopen(nome_foto, "rb")) == NULL){
+	FILE* imgp;
+	if ((imgp = fopen(nome_foto, "rb")) == NULL){
 		perror("Erro: nao foi possivel abrir a foto");
 		return 2;
 	}
-	ImageMatrix* pixels = parseBitmap(fptr);
-	printf("%d %d %d\n", pixels->img[0].B, pixels->img[0].G, pixels->img[0].R);
+	ImageMatrix* img = parseBitmap(imgp);
+
+	subtract(img, 150);
+	saveBitmap("new.bmp", img);	
+	freeBitmap(img);
+	fclose(imgp);
 	return 0;
 }
