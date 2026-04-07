@@ -31,6 +31,11 @@ ImageMatrix* parseBitmap(FILE* imgp){
 	printf("bpp: %d\n", bpp);
 	printf("tamLinha: %d\n", tamLinha);
 
+	if (bpp != 24){
+		perror("Erro de parsing: Imagem não é 24-bitmap");
+		return NULL;
+	}
+
 	// indo pro inicio dos pixels
 	fseek(imgp, offset, SEEK_SET);
 	// criando a matriz
@@ -51,8 +56,8 @@ ImageMatrix* parseBitmap(FILE* imgp){
 }
 
 void freeBitmap(ImageMatrix* bmp){
-	free(bmp->pixels);
-	free(bmp);
+	delete[] bmp->pixels;
+	delete bmp;
 	bmp = NULL;
 }
 
@@ -79,41 +84,43 @@ void saveBitmap(const char* filename, ImageMatrix* img){
 	fclose(imgp);
 }
 
-int preventOverflow(int value){
-	return value > 255? 255 : value;
+unsigned char preventUnderflowAndOverflow(int v){
+	if (v > 255) return 255;
+	if (v < 0) return 0;
+	return v;
 }
 
-int preventUnderflow(int value){
-	return value < 0? 0 : value;
+void add(Pixel* p, void* value){
+	p->B = preventUnderflowAndOverflow(p->B + *((int*)value));
+	p->G = preventUnderflowAndOverflow(p->G + *((int*)value));
+	p->R = preventUnderflowAndOverflow(p->R + *((int*)value));
 }
 
-void add(ImageMatrix* img, int n){
+void subtract(Pixel* p, void* value){
+	p->B = preventUnderflowAndOverflow(p->B - *((int*)value));
+	p->G = preventUnderflowAndOverflow(p->G - *((int*)value));
+	p->R = preventUnderflowAndOverflow(p->R - *((int*)value));
+}
+
+void multiply(Pixel* p, void* factor){
+	p->B = preventUnderflowAndOverflow((p->B - 128) * (*(float*)factor) + 128);
+	p->G = preventUnderflowAndOverflow((p->B - 128)* (*(float*)factor) + 128);
+	p->R = preventUnderflowAndOverflow((p->B - 128)* (*(float*)factor) + 128);
+}
+
+// Faz uma operação em cada pixel da imagem
+void map(ImageMatrix* img, void (*op)(Pixel* p, void* value), void* value){
 	unsigned int altura = img->altura;
 	unsigned int largura = img->largura;
 
 	for (int i = 0; i < altura; i++){
 		for (int j = 0; j < largura; j++){
 			Pixel* p = &img->pixels[i*largura + j];
-			p->B = preventOverflow(p->B + n);
-			p->G = preventOverflow(p->G + n);
-			p->R = preventOverflow(p->R + n);
+			op(p, value);
 		}
 	}
 }
 
-void subtract(ImageMatrix* img, int n){
-	unsigned int altura = img->altura;
-	unsigned int largura = img->largura;
-
-	for (int i = 0; i < altura; i++){
-		for (int j = 0; j < largura; j++){
-			Pixel* p = &img->pixels[i*largura + j];
-			p->B = preventUnderflow(p->B - n);
-			p->G = preventUnderflow(p->G - n);
-			p->R = preventUnderflow(p->R - n);
-		}
-	}
-}
 
 int main(int argc, char* argv[]){
 	if (argc < 2){
@@ -129,7 +136,8 @@ int main(int argc, char* argv[]){
 	}
 	ImageMatrix* img = parseBitmap(imgp);
 
-	subtract(img, 150);
+	float factor = 5;
+	map(img, multiply, &factor);
 	saveBitmap("new.bmp", img);	
 	freeBitmap(img);
 	fclose(imgp);
