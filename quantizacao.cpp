@@ -7,22 +7,22 @@ struct Pixel{ // 3 bytes
 	unsigned char B, G, R;
 };
 
-struct ImageMatrix{
+struct BitmapImage{
 	unsigned int altura, largura;
 	Pixel* pixels;
+	unsigned char header[HEADER_SIZE];
 };
 
-unsigned char header[HEADER_SIZE];
-
-ImageMatrix* parseBitmap(FILE* imgp){
-	fread(header, 54, 1, imgp);
+BitmapImage* parseBitmap(FILE* imgp){
+	BitmapImage* img = new BitmapImage();
+	fread(img->header, HEADER_SIZE, 1, imgp);
 
 	// Parsing do header
-	unsigned char tipo_arquivo[3] = {header[0], header[1], 0};
-	unsigned int offset  = *(unsigned int*)&header[10];
-	unsigned int largura = *(unsigned int*)&header[18];
-	unsigned int altura  = *(unsigned int*)&header[22];
-	unsigned short bpp   = *(unsigned short*)&header[28];
+	unsigned char tipo_arquivo[3] = {img->header[0], img->header[1], 0};
+	unsigned int offset  = *(unsigned int*)&img->header[10];
+	unsigned int largura = *(unsigned int*)&img->header[18];
+	unsigned int altura  = *(unsigned int*)&img->header[22];
+	unsigned short bpp   = *(unsigned short*)&img->header[28];
 	int tamLinha = largura * 3;
 
 	printf("Tipo do arquivo: %s\n", tipo_arquivo);
@@ -39,7 +39,7 @@ ImageMatrix* parseBitmap(FILE* imgp){
 	// indo pro inicio dos pixels
 	fseek(imgp, offset, SEEK_SET);
 	// criando a matriz
-	ImageMatrix* img = new ImageMatrix();
+	
 	img->pixels = new Pixel[largura*altura];
 	img->largura = largura;
 	img->altura = altura;
@@ -55,13 +55,13 @@ ImageMatrix* parseBitmap(FILE* imgp){
 	return img;
 }
 
-void freeBitmap(ImageMatrix* bmp){
+void freeBitmap(BitmapImage* bmp){
 	delete[] bmp->pixels;
 	delete bmp;
 	bmp = NULL;
 }
 
-void saveBitmap(const char* filename, ImageMatrix* img){
+void saveBitmap(const char* filename, BitmapImage* img){
 	FILE* imgp;
 	if ((imgp = fopen(filename, "wb")) == NULL){
 		perror("Erro ao abrir arquivo");
@@ -69,7 +69,7 @@ void saveBitmap(const char* filename, ImageMatrix* img){
 	}
 	
 	// Assume que header nao esta mudado
-	fwrite(header, HEADER_SIZE, 1, imgp);
+	fwrite(img->header, HEADER_SIZE, 1, imgp);
 
 	unsigned int altura = img->altura;
 	unsigned int largura = img->largura;
@@ -101,15 +101,15 @@ void subtract(Pixel* p, void* value){
 	p->G = preventUnderflowAndOverflow(p->G - *((int*)value));
 	p->R = preventUnderflowAndOverflow(p->R - *((int*)value));
 }
-
+// contraste
 void multiply(Pixel* p, void* factor){
 	p->B = preventUnderflowAndOverflow((p->B - 128) * (*(float*)factor) + 128);
-	p->G = preventUnderflowAndOverflow((p->B - 128)* (*(float*)factor) + 128);
-	p->R = preventUnderflowAndOverflow((p->B - 128)* (*(float*)factor) + 128);
+	p->G = preventUnderflowAndOverflow((p->G - 128)* (*(float*)factor) + 128);
+	p->R = preventUnderflowAndOverflow((p->R - 128)* (*(float*)factor) + 128);
 }
 
 // Faz uma operação em cada pixel da imagem
-void map(ImageMatrix* img, void (*op)(Pixel* p, void* value), void* value){
+void map(BitmapImage* img, void (*op)(Pixel* p, void* value), void* value){
 	unsigned int altura = img->altura;
 	unsigned int largura = img->largura;
 
@@ -121,6 +121,24 @@ void map(ImageMatrix* img, void (*op)(Pixel* p, void* value), void* value){
 	}
 }
 
+void negative(Pixel* p, void* _unused){
+	p->B = (255 - p->B);
+	p->G = (255 - p->G);
+	p->R = (255 - p->R);
+}
+// quantizacao para niveis de cinza
+void grayscale(Pixel* p, void* _unused){
+	unsigned char v = 0.299*p->R + 0.587*p->G + 0.114*p->B;
+	p->R = p->G = p->B = v;
+}
+
+void rgbQuantization(Pixel* p, void* k){
+	int levels = *((int*)k);
+	int step = 256/levels;
+	p->B = (p->B/step) * step + step/2;
+	p->G = (p->G/step) * step + step/2;
+	p->R = (p->R/step) * step + step/2;
+}
 
 int main(int argc, char* argv[]){
 	if (argc < 2){
@@ -134,10 +152,10 @@ int main(int argc, char* argv[]){
 		perror("Erro: nao foi possivel abrir a foto");
 		return 2;
 	}
-	ImageMatrix* img = parseBitmap(imgp);
+	BitmapImage* img = parseBitmap(imgp);
 
-	float factor = 5;
-	map(img, multiply, &factor);
+	int levels = 256;
+	map(img, rgbQuantization, &levels);
 	saveBitmap("new.bmp", img);	
 	freeBitmap(img);
 	fclose(imgp);
