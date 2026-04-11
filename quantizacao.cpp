@@ -140,24 +140,70 @@ void rgbQuantization(Pixel* p, void* k){
 	p->R = (p->R/step) * step + step/2;
 }
 
+BitmapImage* map(BitmapImage* a, BitmapImage* b, Pixel (*op)(Pixel* p, Pixel* q)){
+	if (!(a->altura == b->altura and a->largura == b->largura)){
+		perror("ERRO: Operacao aritmetica entre imagens de tamanhos diferentes");
+		return NULL;
+	}
+	unsigned int h = a->altura;
+	unsigned int w = b->largura;
+
+	// imagem de saída
+	BitmapImage* img = new BitmapImage();
+	img->altura = h;
+	img->largura = w;
+	img->pixels = new Pixel[h*w];
+	memcpy(img->header, a->header, HEADER_SIZE);
+	// computacao dos valores dos pixels
+	for (int i = 0; i < h; i++){
+		for (int j = 0; j < w; j++){
+			Pixel* p = &a->pixels[i*w + j];
+			Pixel* q = &b->pixels[i*w + j];
+			img->pixels[i*w + j] = op(p, q);
+		}
+	}
+	return img;
+}
+
+Pixel add(Pixel* p, Pixel* q){
+	Pixel r;
+	r.B = (p->B + q->B) / 2;
+	r.G = (p->G + q->G) / 2;
+	r.R = (p->R + q->R) / 2;
+	return r;
+}
+
+Pixel subtract(Pixel* p, Pixel* q){
+	Pixel r;
+	r.B = p->B - q->B;
+	r.G = p->G - q->G;
+	r.R = p->R - q->R;
+	return r;
+}
+
 int main(int argc, char* argv[]){
 	if (argc < 2){
 		fprintf(stderr, "Erro: Voce esqueceu de passar o caminho da foto.\n");
         fprintf(stderr, "Uso: %s <nome_do_arquivo>\n", argv[0]);
 		return 1;
 	}
-	char* nome_foto = argv[1];
-	FILE* imgp;
-	if ((imgp = fopen(nome_foto, "rb")) == NULL){
+	char* foto1 = argv[1];
+	char* foto2 = argv[2];
+	FILE* ptrFoto1;
+	FILE* ptrFoto2;
+
+	if (((ptrFoto1 = fopen(foto1, "rb")) == NULL or (ptrFoto2 = fopen(foto2, "rb")) == NULL)){
 		perror("Erro: nao foi possivel abrir a foto");
 		return 2;
 	}
-	BitmapImage* img = parseBitmap(imgp);
+	BitmapImage* img1 = parseBitmap(ptrFoto1);
+	BitmapImage* img2 = parseBitmap(ptrFoto2);
 
-	int levels = 256;
-	map(img, rgbQuantization, &levels);
-	saveBitmap("new.bmp", img);	
-	freeBitmap(img);
-	fclose(imgp);
+	BitmapImage* result = map(img1, img2, subtract);
+	saveBitmap("new.bmp", result);	
+	freeBitmap(img1);
+	freeBitmap(img2);
+	fclose(ptrFoto1);
+	fclose(ptrFoto2);
 	return 0;
 }
