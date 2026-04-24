@@ -68,7 +68,6 @@ void saveBitmap(const char* filename, BitmapImage* img){
 		return;
 	}
 	
-	// Assume que header nao esta mudado
 	fwrite(img->header, HEADER_SIZE, 1, imgp);
 
 	unsigned int altura = img->altura;
@@ -181,29 +180,104 @@ Pixel subtract(Pixel* p, Pixel* q){
 	return r;
 }
 
+Pixel multiply(Pixel* p, Pixel* q){
+    Pixel r;
+    r.B = (unsigned char)((p->B * q->B) / 255);
+    r.G = (unsigned char)((p->G * q->G) / 255);
+    r.R = (unsigned char)((p->R * q->R) / 255);
+    return r;
+}
+
+Pixel divide(Pixel* p, Pixel* q){
+    Pixel r;
+    r.B = (q->B == 0) ? 255 : preventUnderflowAndOverflow((p->B * 255) / q->B);
+    r.G = (q->G == 0) ? 255 : preventUnderflowAndOverflow((p->G * 255) / q->G);
+    r.R = (q->R == 0) ? 255 : preventUnderflowAndOverflow((p->R * 255) / q->R);
+    return r;
+}
+
+BitmapImage* translation(BitmapImage* in, int dx, int dy){
+	unsigned int h = in->altura;
+	unsigned int w = in->largura;
+
+	// inicializando imagem de saída
+	BitmapImage* out = new BitmapImage();
+	out->altura = h;
+	out->largura = w;
+	out->pixels = new Pixel[h*w];
+	memcpy(out->header, in->header, HEADER_SIZE);
+
+	// computacao da posicao dos pixels
+	for (int i = 0; i < h; i++){
+		for (int j = 0; j < w; j++){
+			int orig_x = j-dx;
+			int orig_y = i-dy;
+			// se x ou y tao fora da imagem original
+			if ((orig_x < 0 or orig_x >= w) or (orig_y < 0 or orig_y >= h)){				
+				// preenche com branco
+				out->pixels[i*w + j] = Pixel{255,255,255};
+			} 
+			else out->pixels[i*w + j] = in->pixels[orig_y*w + orig_x];
+		}
+	}
+	return out;
+}
+
+BitmapImage* scale(BitmapImage* in, int s) {
+    unsigned int h = in->altura * s;
+    unsigned int w = in->largura * s;
+
+    // Inicializando imagem de saída
+    BitmapImage* out = new BitmapImage();
+    out->altura = h;
+    out->largura = w;
+    out->pixels = new Pixel[h * w];
+    memcpy(out->header, in->header, HEADER_SIZE);
+
+    // atualizando metadados da imagem
+    *(unsigned int*)&out->header[18] = w;
+    *(unsigned int*)&out->header[22] = h;
+
+    int bytesSemPadding = w * 3;
+	int padding = (4 - (bytesSemPadding % 4)) % 4;
+	int novoTamLinhaComPadding = bytesSemPadding + padding;
+    unsigned int novoTamanhoPixels = novoTamLinhaComPadding * h;
+    unsigned int novoTamanhoArquivo = HEADER_SIZE + novoTamanhoPixels;
+
+    *(unsigned int*)&out->header[2] = novoTamanhoArquivo;
+
+    *(unsigned int*)&out->header[34] = novoTamanhoPixels;
+
+    // Computação da posição dos pixels (Nearest Neighbor)
+    for (int i = 0; i < h; i++) {
+        for (int j = 0; j < w; j++) {
+            int orig_x = j / s;
+            int orig_y = i / s;
+			out->pixels[i*w + j] = in->pixels[orig_y*in->largura + orig_x];
+        }
+    }
+    return out;
+}
+
 int main(int argc, char* argv[]){
 	if (argc < 2){
 		fprintf(stderr, "Erro: Voce esqueceu de passar o caminho da foto.\n");
         fprintf(stderr, "Uso: %s <nome_do_arquivo>\n", argv[0]);
 		return 1;
 	}
-	char* foto1 = argv[1];
-	char* foto2 = argv[2];
-	FILE* ptrFoto1;
-	FILE* ptrFoto2;
-
-	if (((ptrFoto1 = fopen(foto1, "rb")) == NULL or (ptrFoto2 = fopen(foto2, "rb")) == NULL)){
+	char* foto = argv[1];
+	FILE* ptrFoto;
+	
+	if (((ptrFoto = fopen(foto, "rb")) == NULL)){
 		perror("Erro: nao foi possivel abrir a foto");
 		return 2;
 	}
-	BitmapImage* img1 = parseBitmap(ptrFoto1);
-	BitmapImage* img2 = parseBitmap(ptrFoto2);
+	BitmapImage* img = parseBitmap(ptrFoto);
 
-	BitmapImage* result = map(img1, img2, subtract);
+	BitmapImage* result = scale(img, 1);
 	saveBitmap("new.bmp", result);	
-	freeBitmap(img1);
-	freeBitmap(img2);
-	fclose(ptrFoto1);
-	fclose(ptrFoto2);
+	freeBitmap(img);
+	freeBitmap(result);
+	fclose(ptrFoto);
 	return 0;
 }
