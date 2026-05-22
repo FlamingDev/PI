@@ -89,23 +89,7 @@ unsigned char preventUnderflowAndOverflow(int v){
 	return v;
 }
 
-void add(Pixel* p, void* value){
-	p->B = preventUnderflowAndOverflow(p->B + *((int*)value));
-	p->G = preventUnderflowAndOverflow(p->G + *((int*)value));
-	p->R = preventUnderflowAndOverflow(p->R + *((int*)value));
-}
 
-void subtract(Pixel* p, void* value){
-	p->B = preventUnderflowAndOverflow(p->B - *((int*)value));
-	p->G = preventUnderflowAndOverflow(p->G - *((int*)value));
-	p->R = preventUnderflowAndOverflow(p->R - *((int*)value));
-}
-// contraste
-void multiply(Pixel* p, void* factor){
-	p->B = preventUnderflowAndOverflow((p->B - 128) * (*(float*)factor) + 128);
-	p->G = preventUnderflowAndOverflow((p->G - 128)* (*(float*)factor) + 128);
-	p->R = preventUnderflowAndOverflow((p->R - 128)* (*(float*)factor) + 128);
-}
 
 // Faz uma operação em cada pixel da imagem
 void map(BitmapImage* img, void (*op)(Pixel* p, void* value), void* value){
@@ -120,11 +104,6 @@ void map(BitmapImage* img, void (*op)(Pixel* p, void* value), void* value){
 	}
 }
 
-void negative(Pixel* p, void* _unused){
-	p->B = (255 - p->B);
-	p->G = (255 - p->G);
-	p->R = (255 - p->R);
-}
 // quantizacao para niveis de cinza
 void grayscale(Pixel* p, void* _unused){
 	unsigned char v = 0.299*p->R + 0.587*p->G + 0.114*p->B;
@@ -162,38 +141,6 @@ BitmapImage* map(BitmapImage* a, BitmapImage* b, Pixel (*op)(Pixel* p, Pixel* q)
 		}
 	}
 	return img;
-}
-
-Pixel add(Pixel* p, Pixel* q){
-	Pixel r;
-	r.B = (p->B + q->B) / 2;
-	r.G = (p->G + q->G) / 2;
-	r.R = (p->R + q->R) / 2;
-	return r;
-}
-
-Pixel subtract(Pixel* p, Pixel* q){
-	Pixel r;
-	r.B = p->B - q->B;
-	r.G = p->G - q->G;
-	r.R = p->R - q->R;
-	return r;
-}
-
-Pixel multiply(Pixel* p, Pixel* q){
-    Pixel r;
-    r.B = (unsigned char)((p->B * q->B) / 255);
-    r.G = (unsigned char)((p->G * q->G) / 255);
-    r.R = (unsigned char)((p->R * q->R) / 255);
-    return r;
-}
-
-Pixel divide(Pixel* p, Pixel* q){
-    Pixel r;
-    r.B = (q->B == 0) ? 255 : preventUnderflowAndOverflow((p->B * 255) / q->B);
-    r.G = (q->G == 0) ? 255 : preventUnderflowAndOverflow((p->G * 255) / q->G);
-    r.R = (q->R == 0) ? 255 : preventUnderflowAndOverflow((p->R * 255) / q->R);
-    return r;
 }
 
 BitmapImage* translation(BitmapImage* in, int dx, int dy){
@@ -273,11 +220,11 @@ int main(int argc, char* argv[]){
 		return 2;
 	}
 	BitmapImage* img = parseBitmap(ptrFoto);
-
-	BitmapImage* result = scale(img, 1);
-	saveBitmap("new.bmp", result);	
+	int levels = 2;
+	map(img, rgbQuantization, &levels);
+	BitmapImage* result = img;
+	saveBitmap("quantization.bmp", result);	
 	freeBitmap(img);
-	freeBitmap(result);
 	fclose(ptrFoto);
 	return 0;
 }

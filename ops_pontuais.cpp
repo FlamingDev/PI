@@ -1,15 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <cmath>
+#include <math.h>
 #define HEADER_SIZE 54
 
 struct Pixel{ // 3 bytes
 	unsigned char B, G, R;
-};
-
-struct Matrix3x3{
-	float m[3][3];
 };
 
 struct BitmapImage{
@@ -87,125 +83,54 @@ void saveBitmap(const char* filename, BitmapImage* img){
 	}
 	fclose(imgp);
 }
-// INVERSA DAS MATRIZES PARA TRANSFORMACOES USANDO BACKWARD MAPPING
-Matrix3x3 inverseTranslation(float dx, float dy){
-	return Matrix3x3 {{
-		{1, 0, -dx},
-		{0, 1, -dy},
-		{0, 0, 1}
-	}};
+
+unsigned char preventUnderflowAndOverflow(int v){
+	if (v > 255) return 255;
+	if (v < 0) return 0;
+	return v;
 }
 
-Matrix3x3 inverseScale(float sx, float sy){
-	return Matrix3x3 {{
-		{1.0f/sx, 0, 0},
-		{0, 1.0f/sy, 0},
-		{0, 0, 1}
-	}};
+void add(Pixel* p, void* value){
+	p->B = preventUnderflowAndOverflow(p->B + *((int*)value));
+	p->G = preventUnderflowAndOverflow(p->G + *((int*)value));
+	p->R = preventUnderflowAndOverflow(p->R + *((int*)value));
 }
 
-Matrix3x3 inverseRotation(float theta){
-	float c = cos(theta);
-	float s = sin(theta);
-
-	return Matrix3x3 {{
-		{ c, s, 0},
-		{-s, c, 0},
-		{ 0, 0, 1}
-	}};
+void subtract(Pixel* p, void* value){
+	p->B = preventUnderflowAndOverflow(p->B - *((int*)value));
+	p->G = preventUnderflowAndOverflow(p->G - *((int*)value));
+	p->R = preventUnderflowAndOverflow(p->R - *((int*)value));
+}
+// contraste
+void contrastStretching(Pixel* p, void* factor){
+	p->B = preventUnderflowAndOverflow((p->B - 128) * (*(float*)factor) + 128);
+	p->G = preventUnderflowAndOverflow((p->G - 128) * (*(float*)factor) + 128);
+	p->R = preventUnderflowAndOverflow((p->R - 128) * (*(float*)factor) + 128);
 }
 
-Matrix3x3 inverseHorizontalShear(float kx){
-	return Matrix3x3 {{
-		{1, -kx, 0},
-		{0,  1,  0},
-		{0,  0,  1}
-	}};
+void correcaoGama(Pixel*p, void* expoente){
+	p->B = preventUnderflowAndOverflow(pow(p->B, *(float*)expoente));
+	p->G = preventUnderflowAndOverflow(pow(p->G, *(float*)expoente));
+	p->R = preventUnderflowAndOverflow(pow(p->R, *(float*)expoente));
 }
 
-Matrix3x3 inverseVerticalShear(float ky){
-	return Matrix3x3 {{
-		{ 1, 0, 0},
-		{-ky, 1, 0},
-		{ 0, 0, 1}
-	}};
-}
+// Faz uma operação em cada pixel da imagem
+void map(BitmapImage* img, void (*op)(Pixel* p, void* value), void* value){
+	unsigned int altura = img->altura;
+	unsigned int largura = img->largura;
 
-void transformPoint(
-	Matrix3x3* T,
-	float x,
-	float y,
-	float* out_x,
-	float* out_y
-){
-	*out_x = T->m[0][0]*x +
-			 T->m[0][1]*y +
-			 T->m[0][2];
-
-	*out_y = T->m[1][0]*x +
-			 T->m[1][1]*y +
-			 T->m[1][2];
-}
-
-BitmapImage* applyTransform(
-	BitmapImage* in,
-	Matrix3x3* inverseTransform,
-	unsigned int newW,
-	unsigned int newH
-){
-	BitmapImage* out = new BitmapImage();
-
-	out->largura = newW;
-	out->altura = newH;
-	out->pixels = new Pixel[newW * newH];
-
-	memcpy(out->header, in->header, HEADER_SIZE);
-
-	// atualizando metadados da imagem
-    *(unsigned int*)&out->header[18] = newW;
-    *(unsigned int*)&out->header[22] = newH;
-
-    int bytesSemPadding = newW * 3;
-	int padding = (4 - (bytesSemPadding % 4)) % 4;
-	int novoTamLinhaComPadding = bytesSemPadding + padding;
-    unsigned int novoTamanhoPixels = novoTamLinhaComPadding * newH;
-    unsigned int novoTamanhoArquivo = HEADER_SIZE + novoTamanhoPixels;
-
-    *(unsigned int*)&out->header[2] = novoTamanhoArquivo;
-
-    *(unsigned int*)&out->header[34] = novoTamanhoPixels;
-
-	for (int y = 0; y < newH; y++){
-		for (int x = 0; x < newW; x++){
-			// ponto correspondente na imagem original
-			float src_x, src_y;
-
-			transformPoint(
-				inverseTransform,
-				x,
-				y,
-				&src_x,
-				&src_y
-			);
-
-			src_x = (int)src_x;
-			src_y = (int)src_y;
-
-			if (
-				src_x < 0 || src_x >= in->largura ||
-				src_y < 0 || src_y >= in->altura
-			){
-				out->pixels[y*newW + x] =
-					Pixel{255,255,255};
-			}
-			else{
-				out->pixels[y*newW + x] =
-					in->pixels[(int)src_y*in->largura + (int)src_x];
-			}
+	for (int i = 0; i < altura; i++){
+		for (int j = 0; j < largura; j++){
+			Pixel* p = &img->pixels[i*largura + j];
+			op(p, value);
 		}
 	}
+}
 
-	return out;
+void negative(Pixel* p, void* _unused){
+	p->B = (255 - p->B);
+	p->G = (255 - p->G);
+	p->R = (255 - p->R);
 }
 
 int main(int argc, char* argv[]){
@@ -222,16 +147,11 @@ int main(int argc, char* argv[]){
 		return 2;
 	}
 	BitmapImage* img = parseBitmap(ptrFoto);
-	
-	Matrix3x3 inv = inverseHorizontalShear(-0.5); // cisalhamento horizontal
 
-	BitmapImage* result = applyTransform(
-		img,
-		&inv,
-		img->largura,
-		img->altura
-	);
-	saveBitmap("horizontal_shear.bmp", result);	
+    float value = 0.9;
+    map(img,correcaoGama, &value);
+	BitmapImage* result = img;
+	saveBitmap("realce_gama.bmp", result);	
 	freeBitmap(img);
 	freeBitmap(result);
 	fclose(ptrFoto);
